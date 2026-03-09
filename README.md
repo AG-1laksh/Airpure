@@ -28,8 +28,7 @@ Airpure/
 ├── src/                      # Source code modules
 ├── models/                   # Saved trained models
 ├── results/                  # Outputs and visualizations
-├── dashboard/                # Streamlit dashboard
-├── research_paper/           # Research paper content
+├── dashboard/                # Streamlit dashboard          
 ├── requirements.txt
 ├── config.py
 ├── main.py
