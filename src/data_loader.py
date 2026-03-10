@@ -110,13 +110,74 @@ def load_delhi_excel_data() -> Optional[pd.DataFrame]:
     return combined
 
 
+def load_delhi_kaggle_data(source_file: str = "final_dataset") -> Optional[pd.DataFrame]:
+    """
+    Load Delhi air quality data from the Kaggle dataset
+    (kunshbhatia/delhi-air-quality-dataset).
+
+    The raw files have separate Day/Month/Year integer columns and use
+    'Ozone' instead of 'O3'.  This function normalises them into the
+    standard project format.
+
+    Args:
+        source_file: Base filename without extension.
+                     One of 'final_dataset', 'Cleaned_NSUT', 'FINAL_ITO_DATA'.
+
+    Returns:
+        Normalised DataFrame or None if the file is not found.
+    """
+    city_raw_dir = get_city_raw_dir("Delhi")
+
+    # Try CSV first, then XLSX
+    fp = None
+    for ext in [".csv", ".xlsx"]:
+        candidate = city_raw_dir / f"{source_file}{ext}"
+        if candidate.exists():
+            fp = candidate
+            break
+
+    if fp is None:
+        logger.warning(f"Kaggle dataset '{source_file}' not found in {city_raw_dir}")
+        return None
+
+    logger.info(f"Loading Delhi Kaggle dataset from {fp}")
+    df = pd.read_csv(fp) if fp.suffix == ".csv" else pd.read_excel(fp)
+
+    # Reconstruct a proper datetime from the separate Day / Month / Year columns.
+    # The source 'Date' column contains day-of-month integers (1-31).
+    df["Date"] = pd.to_datetime(
+        {"year": df["Year"], "month": df["Month"], "day": df["Date"]},
+        errors="coerce",
+    )
+    df = df.dropna(subset=["Date"])
+
+    # Rename 'Ozone' → 'O3' to match the project's POLLUTION_FEATURES config.
+    if "Ozone" in df.columns:
+        df = df.rename(columns={"Ozone": "O3"})
+
+    # Drop columns that are now redundant (Date/temporal features are
+    # reconstructed from the proper Date by feature_engineering).
+    df = df.drop(columns=["Month", "Year", "Days"], errors="ignore")
+
+    df["City"] = "Delhi"
+    df = df.sort_values("Date").reset_index(drop=True)
+
+    logger.info(
+        f"Loaded {len(df)} Delhi Kaggle records "
+        f"({df['Date'].min().date()} \u2192 {df['Date'].max().date()})"
+    )
+    return df
+
+
 def load_data(city: str, file_path: Optional[str] = None) -> pd.DataFrame:
     """
     Load air quality data for a specific city.
 
-    For Delhi, automatically detects and loads year-wise Excel files
-    (AQI_daily_city_level_delhi_<year>_delhi_<year>.xlsx) if present.
-    Falls back to a CSV file or synthetic sample data.
+    For Delhi, tries (in order):
+      1. Kaggle dataset files in data/Delhi/raw/ (final_dataset.csv preferred)
+      2. Year-wise Excel files (AQI_daily_city_level_delhi_*.xlsx)
+      3. Generic CSV at data/<City>/raw/<City>_air_quality.csv
+      4. Synthetic sample data
 
     Args:
         city: City name (Delhi, Mumbai, Chennai, Bangalore)
@@ -129,17 +190,23 @@ def load_data(city: str, file_path: Optional[str] = None) -> pd.DataFrame:
         logger.warning(f"City {city} not in predefined list. Proceeding anyway.")
 
     if file_path is None:
-        # --- Delhi: try year-wise Excel files first ---
         if city == "Delhi":
+            # 1. Try Kaggle dataset files (preferred: more parameters)
+            for kaggle_name in ["final_dataset", "Cleaned_NSUT", "FINAL_ITO_DATA"]:
+                df = load_delhi_kaggle_data(source_file=kaggle_name)
+                if df is not None:
+                    return df
+
+            # 2. Fall back to year-wise Excel files
             city_raw_dir = get_city_raw_dir(city)
             excel_files = list(city_raw_dir.glob("AQI_daily_city_level_delhi_*.xlsx"))
             if excel_files:
                 logger.info(f"Found {len(excel_files)} Delhi Excel file(s). Loading...")
-                df = load_delhi_excel_data()
-                if df is not None:
-                    return df
+                df_excel = load_delhi_excel_data()
+                if df_excel is not None:
+                    return df_excel
 
-        # --- Generic path: city folder CSV → legacy CSV ---
+        # 3. Generic path: city folder CSV → legacy CSV
         city_path = get_city_raw_dir(city) / f"{city}_air_quality.csv"
         legacy_path = RAW_DATA_DIR / f"{city}_air_quality.csv"
         file_path = city_path if city_path.exists() else legacy_path
