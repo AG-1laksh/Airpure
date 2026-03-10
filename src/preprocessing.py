@@ -108,14 +108,17 @@ def handle_missing_values(df: pd.DataFrame, method: str = "ffill") -> pd.DataFra
     return df_filled
 
 
-def remove_outliers_iqr(df: pd.DataFrame, multiplier: float = 1.5) -> pd.DataFrame:
+def remove_outliers_iqr(df: pd.DataFrame, multiplier: float = 3.0) -> pd.DataFrame:
     """
-    Remove outliers using IQR method
-    
+    Remove outliers using IQR method.
+    Multiplier default is 3.0 (vs the classic 1.5) because pollution data in
+    cities like Delhi has a heavy-tailed distribution where extreme events are
+    real signal, not noise.  Use 1.5 only for normally distributed features.
+
     Args:
         df: Input dataframe
         multiplier: IQR multiplier for outlier detection
-        
+
     Returns:
         DataFrame with outliers removed
     """
