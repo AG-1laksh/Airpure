@@ -261,7 +261,7 @@ def load_lstm_model(model_name: str = "lstm_model") -> Sequential:
 def predict_future_aqi(model: Sequential,
                       last_sequence: np.ndarray,
                       n_days: int = 7,
-                      scaler: MinMaxScaler = None) -> np.ndarray:
+                      scaler_y: MinMaxScaler = None) -> np.ndarray:
     """
     Predict future AQI values
     
@@ -269,10 +269,10 @@ def predict_future_aqi(model: Sequential,
         model: Trained LSTM model
         last_sequence: Last sequence of features (time_steps, n_features)
         n_days: Number of days to predict ahead
-        scaler: Scaler used for data normalization (optional)
+        scaler_y: Scaler fitted ONLY on y (target) values for inverse-transform
         
     Returns:
-        Array of future AQI predictions
+        Array of future AQI predictions (in original AQI scale if scaler_y provided)
     """
     logger.info(f"Predicting {n_days} days ahead...")
     
@@ -288,19 +288,14 @@ def predict_future_aqi(model: Sequential,
         predictions.append(next_pred)
         
         # Update sequence (sliding window)
-        # Note: This is simplified - in practice, you'd need to update all features
         current_sequence = np.roll(current_sequence, -1, axis=0)
         current_sequence[-1, -1] = next_pred  # Update AQI in last position
     
     predictions = np.array(predictions)
     
-    # Inverse transform if scaler provided
-    if scaler is not None:
-        # Assuming AQI is the last feature
-        predictions = scaler.inverse_transform(
-            np.concatenate([np.zeros((len(predictions), scaler.scale_.shape[0]-1)), 
-                          predictions.reshape(-1, 1)], axis=1)
-        )[:, -1]
+    # Inverse transform using the target-only scaler
+    if scaler_y is not None:
+        predictions = scaler_y.inverse_transform(predictions.reshape(-1, 1)).flatten()
     
     return predictions
 

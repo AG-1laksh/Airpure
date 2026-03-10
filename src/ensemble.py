@@ -98,7 +98,9 @@ def stacking_ensemble(X_train: np.ndarray,
                      base_models: List[Any],
                      meta_model: Any = None) -> np.ndarray:
     """
-    Create stacking ensemble with meta-learner
+    Create stacking ensemble with meta-learner.
+    Uses out-of-fold (OOF) predictions via TimeSeriesSplit to prevent
+    training-data leakage into the meta-learner.
     
     Args:
         X_train: Training features
@@ -111,35 +113,32 @@ def stacking_ensemble(X_train: np.ndarray,
         Ensemble predictions
     """
     from sklearn.linear_model import Ridge
+    from sklearn.model_selection import TimeSeriesSplit
     
-    logger.info(f"Creating stacking ensemble with {len(base_models)} base models")
+    n_splits = 5
+    tscv = TimeSeriesSplit(n_splits=n_splits)
     
-    # Train base models and get predictions
-    train_meta_features = []
-    test_meta_features = []
+    logger.info(f"Creating stacking ensemble with {len(base_models)} base models (OOF, {n_splits} splits)")
     
-    for i, model in enumerate(base_models):
-        logger.info(f"Training base model {i+1}/{len(base_models)}")
-        
-        # Train base model
-        model.fit(X_train, y_train)
-        
-        # Get predictions
-        train_pred = model.predict(X_train).reshape(-1, 1)
-        test_pred = model.predict(X_test).reshape(-1, 1)
-        
-        train_meta_features.append(train_pred)
-        test_meta_features.append(test_pred)
+    # OOF meta-features for training the meta-learner (no leakage)
+    oof_meta_features = np.zeros((len(y_train), len(base_models)))
+    # Test predictions accumulated over folds then averaged
+    test_fold_preds = np.zeros((len(X_test), len(base_models), n_splits))
     
-    # Stack predictions
-    X_train_meta = np.hstack(train_meta_features)
-    X_test_meta = np.hstack(test_meta_features)
+    for fold_i, (tr_idx, val_idx) in enumerate(tscv.split(X_train)):
+        for model_i, model in enumerate(base_models):
+            model.fit(X_train[tr_idx], y_train[tr_idx])
+            oof_meta_features[val_idx, model_i] = model.predict(X_train[val_idx])
+            test_fold_preds[:, model_i, fold_i] = model.predict(X_test)
+    
+    X_train_meta = oof_meta_features
+    X_test_meta = test_fold_preds.mean(axis=2)  # average test preds over folds
     
     # Train meta-model
     if meta_model is None:
         meta_model = Ridge(alpha=1.0)
     
-    logger.info("Training meta-learner")
+    logger.info("Training meta-learner on OOF predictions")
     meta_model.fit(X_train_meta, y_train)
     
     # Final predictions

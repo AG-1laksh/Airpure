@@ -45,11 +45,15 @@ except Exception as e:
 try:
     from src.ml_models import train_ml_models
     results = train_ml_models(X_train, y_train, X_test, y_test, save_models=True)
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score as _r2
     model_lines = []
     for name, r in results.items():
-        if r.get('metrics'):
-            m = r['metrics']
-            model_lines.append(f"  {name:25s} RMSE={m['RMSE']:.2f}  MAE={m['MAE']:.2f}  R2={m['R2']:.3f}")
+        if r.get('model') is not None:
+            y_pred = r['model'].predict(X_test)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            mae = mean_absolute_error(y_test, y_pred)
+            r2v = _r2(y_test, y_pred)
+            model_lines.append(f"  {name:25s} RMSE={rmse:.2f}  MAE={mae:.2f}  R2={r2v:.3f}")
         else:
             model_lines.append(f"  {name:25s} FAILED")
     steps['5_ml_models'] = "OK\n" + "\n".join(model_lines)
@@ -77,11 +81,14 @@ try:
         X_sc[:split], y_sc[:split],
         X_sc[split:], y_sc[split:],
         time_steps=30,
-        lstm_config={'units': 64, 'dropout': 0.2, 'dense_units': 32,
-                     'epochs': 5, 'batch_size': 32, 'patience': 3},
+        lstm_config={'lstm_units': 64, 'dropout_rate': 0.2, 'num_lstm_layers': 2,
+                     'epochs': 5, 'batch_size': 32},
         save_model=True, model_name='Delhi_lstm_model'
     )
-    steps['6_lstm'] = f"OK  final_val_loss={lstm_info.get('val_loss', 'N/A')}"
+    history = lstm_info.get('history', {})
+    val_loss_list = history.get('val_loss', history.get('loss', ['N/A']))
+    final_val_loss = val_loss_list[-1] if val_loss_list else 'N/A'
+    steps['6_lstm'] = f"OK  final_val_loss={final_val_loss}"
 except Exception as e:
     steps['6_lstm'] = f"FAIL  {e}"
     traceback.print_exc()

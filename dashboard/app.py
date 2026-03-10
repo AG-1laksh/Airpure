@@ -84,7 +84,7 @@ def main():
     with st.spinner(f"Loading data for {selected_city}..."):
         try:
             df = load_data(selected_city)
-        except:
+        except Exception:
             st.warning(f"No data found for {selected_city}. Creating sample data...")
             df = create_sample_data(selected_city)
         
@@ -247,14 +247,13 @@ def show_prediction_interface(df, city):
     if st.button("🔮 Predict AQI", type="primary"):
         with st.spinner("Predicting..."):
             try:
-                # Use a simple prediction based on PM2.5 (simplified)
-                # In production, load trained model
+                # Simplified heuristic estimate (no trained model loaded).
+                # Train the full pipeline (main.py --mode train) and integrate
+                # a dashboard-specific model for production use.
                 predicted_aqi = pm25 * 1.5 + pm10 * 0.5 + no2 * 0.3
                 predicted_aqi = min(predicted_aqi, 500)
                 
-                category, color = get_aqi_category(predicted_aqi)
-                
-                st.success("Prediction Complete!")
+                st.caption("⚠️ This is a simplified heuristic estimate. Run the full training pipeline for a calibrated model.")
                 
                 # Display prediction
                 col1, col2, col3 = st.columns([1, 2, 1])

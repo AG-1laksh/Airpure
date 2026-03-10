@@ -65,8 +65,8 @@ def preprocess_data(df: pd.DataFrame,
     
     logger.info(f"Scaling {len(numeric_cols)} numeric features using {scaler_type}")
     
-    # Note: We'll save the scaler for later use in predictions
-    # For now, we'll scale but can also return unscaled version
+    # Note: Feature scaling is performed separately by the caller
+    # (e.g. scale_features() for ML models, MinMaxScaler for LSTM)
     
     logger.info("Preprocessing completed")
     return df_clean
@@ -87,15 +87,15 @@ def handle_missing_values(df: pd.DataFrame, method: str = "ffill") -> pd.DataFra
     
     if method == "ffill":
         # Forward fill - use previous value
-        df_filled = df_filled.fillna(method='ffill')
+        df_filled = df_filled.ffill()
         # Backward fill for any remaining
-        df_filled = df_filled.fillna(method='bfill')
+        df_filled = df_filled.bfill()
     
     elif method == "interpolate":
         # Linear interpolation
         numeric_cols = df_filled.select_dtypes(include=[np.number]).columns
         df_filled[numeric_cols] = df_filled[numeric_cols].interpolate(method='linear')
-        df_filled = df_filled.fillna(method='bfill')
+        df_filled = df_filled.bfill()
     
     elif method == "drop":
         # Drop rows with missing values
@@ -103,7 +103,7 @@ def handle_missing_values(df: pd.DataFrame, method: str = "ffill") -> pd.DataFra
     
     else:
         logger.warning(f"Unknown method {method}, using forward fill")
-        df_filled = df_filled.fillna(method='ffill').fillna(method='bfill')
+        df_filled = df_filled.ffill().bfill()
     
     return df_filled
 
@@ -122,8 +122,9 @@ def remove_outliers_iqr(df: pd.DataFrame, multiplier: float = 1.5) -> pd.DataFra
     df_clean = df.copy()
     numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
     
-    # Exclude Date column if it's numeric
-    numeric_cols = [col for col in numeric_cols if col not in ['Date']]
+    # Exclude Date and AQI columns from outlier removal.
+    # AQI extreme events (e.g. 400-500 during smog) are real signal, not noise.
+    numeric_cols = [col for col in numeric_cols if col not in ['Date', 'AQI']]
     
     initial_len = len(df_clean)
     

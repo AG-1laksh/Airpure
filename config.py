@@ -53,6 +53,7 @@ LSTM_CONFIG = {
     "time_steps": 7,
     "lstm_units": 64,
     "dropout_rate": 0.2,
+    "num_lstm_layers": 2,
     "epochs": 100,
     "batch_size": 32,
     "validation_split": 0.2

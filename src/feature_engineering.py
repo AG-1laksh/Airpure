@@ -100,7 +100,7 @@ def create_temporal_features(df: pd.DataFrame, date_col: str = 'Date') -> pd.Dat
         df_temporal['Day'] = df_temporal[date_col].dt.day
         df_temporal['DayOfWeek'] = df_temporal[date_col].dt.dayofweek
         df_temporal['DayOfYear'] = df_temporal[date_col].dt.dayofyear
-        df_temporal['Week'] = df_temporal[date_col].dt.isocalendar().week
+        df_temporal['Week'] = df_temporal[date_col].dt.isocalendar().week.astype(int)
         df_temporal['Quarter'] = df_temporal[date_col].dt.quarter
         
         # Cyclical encoding for month and day

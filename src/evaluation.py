@@ -223,7 +223,7 @@ def cross_validate_model(model: Any,
                         y: np.ndarray,
                         cv: int = 5) -> Dict:
     """
-    Perform cross-validation on a model
+    Perform cross-validation on a model using time-series aware splits
     
     Args:
         model: Model to validate
@@ -234,19 +234,22 @@ def cross_validate_model(model: Any,
     Returns:
         Dictionary with CV results
     """
-    from sklearn.model_selection import cross_val_score
+    from sklearn.model_selection import cross_val_score, TimeSeriesSplit
     
-    logger.info(f"Performing {cv}-fold cross-validation...")
+    logger.info(f"Performing {cv}-fold time-series cross-validation...")
+    
+    # TimeSeriesSplit ensures no future data leaks into earlier folds
+    tscv = TimeSeriesSplit(n_splits=cv)
     
     # Calculate scores for different metrics
     rmse_scores = np.sqrt(-cross_val_score(
-        model, X, y, cv=cv, scoring='neg_mean_squared_error'
+        model, X, y, cv=tscv, scoring='neg_mean_squared_error'
     ))
     mae_scores = -cross_val_score(
-        model, X, y, cv=cv, scoring='neg_mean_absolute_error'
+        model, X, y, cv=tscv, scoring='neg_mean_absolute_error'
     )
     r2_scores = cross_val_score(
-        model, X, y, cv=cv, scoring='r2'
+        model, X, y, cv=tscv, scoring='r2'
     )
     
     results = {
