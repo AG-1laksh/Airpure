@@ -41,6 +41,9 @@ for name in model_names:
         print(f"\n{name}")
         print(f"  Predictions : {y_pred[:10].round(1)}")
         print(f"  RMSE={metrics['RMSE']:.2f}  MAE={metrics['MAE']:.2f}  R2={metrics['R2']:.3f}")
+        print("  Actual vs Predicted (first 10):")
+        for actual, pred in zip(y_test[:10], y_pred[:10]):
+            print(f"    Actual: {actual:6.1f}  →  Predicted: {pred:6.1f}  (error: {abs(actual-pred):.1f})")
     except FileNotFoundError:
         print(f"{name:<30} [not trained yet — run: python main.py --city Delhi --mode train]")
 
