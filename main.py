@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+import pandas as pd
+import joblib
+from sklearn.preprocessing import StandardScaler
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent / 'src'))
@@ -25,7 +28,7 @@ from src.visualization import (
     plot_model_comparison, plot_aqi_distribution,
     plot_seasonal_analysis, plot_yearly_trend
 )
-from config import CITIES, TARGET_VARIABLE, LSTM_CONFIG
+from config import CITIES, TARGET_VARIABLE, LSTM_CONFIG, PROCESSED_DATA_DIR, get_city_processed_dir, MODELS_DIR
 
 # Configure logging
 logging.basicConfig(
@@ -78,8 +81,6 @@ def run_feature_engineering(df, city: str):
     logger.info(f"Engineered features. Shape: {df_engineered.shape}")
     
     # Save so subsequent modes (train, lstm …) can load without re-running
-    from config import PROCESSED_DATA_DIR, get_city_processed_dir
-    import pandas as pd
     # prefer city-specific dir, fall back to legacy
     city_proc_dir = get_city_processed_dir(city)
     city_proc_dir.mkdir(parents=True, exist_ok=True)
@@ -99,6 +100,14 @@ def run_ml_training(df, city: str):
     
     # Prepare data
     X_train, X_test, y_train, y_test = prepare_train_test_split(df, target_col=TARGET_VARIABLE)
+    
+    # Scale features (required for SVR and Linear Regression correctness)
+    scaler_X = StandardScaler()
+    X_train = scaler_X.fit_transform(X_train)
+    X_test = scaler_X.transform(X_test)
+    scaler_path = MODELS_DIR / f"{city}_ml_scaler.pkl"
+    joblib.dump(scaler_X, scaler_path)
+    logger.info(f"Saved ML feature scaler to {scaler_path}")
     
     # Train traditional ML models
     ml_results = train_ml_models(X_train, y_train, X_test, y_test, save_models=True)
@@ -155,7 +164,12 @@ def run_lstm_training(df, city: str):
         model_name=f'{city}_lstm_model'
     )
     
-    return lstm_model, lstm_info
+    # Save scalers alongside the model for correct inference-time inverse-transform
+    joblib.dump(scaler_X, MODELS_DIR / f"{city}_lstm_scaler_X.pkl")
+    joblib.dump(scaler_y, MODELS_DIR / f"{city}_lstm_scaler_y.pkl")
+    logger.info(f"Saved LSTM scalers to {MODELS_DIR}")
+    
+    return lstm_model, lstm_info, scaler_X, scaler_y
 
 
 def run_explainability(model, X_test, feature_names, city: str):
@@ -207,8 +221,6 @@ def main():
             df_final = run_feature_engineering(df_clean, args.city)
         else:
             # Load preprocessed data — fall back to running it if the file doesn't exist
-            from config import PROCESSED_DATA_DIR
-            import pandas as pd
             legacy_path = PROCESSED_DATA_DIR / f"{args.city}_processed.csv"
             if legacy_path.exists():
                 df_final = pd.read_csv(legacy_path)
@@ -236,7 +248,7 @@ def main():
         
         if args.mode in ['all', 'lstm']:
             # Train LSTM
-            lstm_model, lstm_info = run_lstm_training(df_final, args.city)
+            lstm_model, lstm_info, lstm_scaler_X, lstm_scaler_y = run_lstm_training(df_final, args.city)
         
         if args.mode in ['all', 'explain']:
             # Explainability analysis
