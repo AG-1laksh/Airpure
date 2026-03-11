@@ -49,7 +49,8 @@ def create_lag_features(df: pd.DataFrame,
 
 def create_rolling_features(df: pd.DataFrame,
                             columns: List[str],
-                            windows: List[int] = [3, 7, 14]) -> pd.DataFrame:
+                            windows: List[int] = [3, 7, 14],
+                            shift: int = 0) -> pd.DataFrame:
     """
     Create rolling window features (mean, std, min, max)
     
@@ -57,6 +58,7 @@ def create_rolling_features(df: pd.DataFrame,
         df: Input dataframe
         columns: Columns to create rolling features for
         windows: Window sizes for rolling calculations
+        shift: Shift series before rolling (use 1 to avoid current-day leakage)
         
     Returns:
         DataFrame with rolling features
@@ -68,10 +70,11 @@ def create_rolling_features(df: pd.DataFrame,
     for col in columns:
         if col in df.columns:
             for window in windows:
-                df_rolling[f'{col}_rolling_mean_{window}'] = df[col].rolling(window=window).mean()
-                df_rolling[f'{col}_rolling_std_{window}'] = df[col].rolling(window=window).std()
-                df_rolling[f'{col}_rolling_min_{window}'] = df[col].rolling(window=window).min()
-                df_rolling[f'{col}_rolling_max_{window}'] = df[col].rolling(window=window).max()
+                series = df[col].shift(shift) if shift else df[col]
+                df_rolling[f'{col}_rolling_mean_{window}'] = series.rolling(window=window).mean()
+                df_rolling[f'{col}_rolling_std_{window}'] = series.rolling(window=window).std()
+                df_rolling[f'{col}_rolling_min_{window}'] = series.rolling(window=window).min()
+                df_rolling[f'{col}_rolling_max_{window}'] = series.rolling(window=window).max()
     
     # Drop NaN values
     df_rolling = df_rolling.dropna().reset_index(drop=True)
@@ -142,11 +145,6 @@ def create_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     if 'NO2' in df.columns and 'Temperature' in df.columns:
         df_interact['NO2_Temp_interaction'] = df['NO2'] * df['Temperature']
     
-    # Total particulate matter
-    if 'PM2.5' in df.columns and 'PM10' in df.columns:
-        df_interact['Total_PM'] = df['PM2.5'] + df['PM10']
-        df_interact['PM_ratio'] = df['PM2.5'] / (df['PM10'] + 1)
-    
     return df_interact
 
 
@@ -184,6 +182,7 @@ def engineer_features(df: pd.DataFrame,
                      include_rolling: bool = True,
                      include_temporal: bool = True,
                      include_interaction: bool = True,
+                     include_pollution_index: bool = False,
                      lag_days: int = LAG_DAYS) -> pd.DataFrame:
     """
     Complete feature engineering pipeline
@@ -211,16 +210,26 @@ def engineer_features(df: pd.DataFrame,
     if include_interaction:
         df_engineered = create_interaction_features(df_engineered)
     
-    # Pollution index features
-    df_engineered = create_pollution_index_features(df_engineered)
+    # Pollution index features (disabled by default to avoid target leakage)
+    if include_pollution_index:
+        df_engineered = create_pollution_index_features(df_engineered)
     
     # Rolling features (before lag to avoid excessive features)
     if include_rolling:
-        # Exclude target variable to prevent leakage (rolling windows include current-day target)
+        # Rolling features for pollutants/meteorology (current-day is acceptable)
         feature_cols = list(dict.fromkeys(POLLUTION_FEATURES + METEOROLOGICAL_FEATURES))
         available_cols = [col for col in feature_cols if col in df_engineered.columns]
         if available_cols:
-            df_engineered = create_rolling_features(df_engineered, available_cols, windows=[3, 7])
+            df_engineered = create_rolling_features(df_engineered, available_cols, windows=[3, 7], shift=0)
+
+        # Rolling features for target (use only past values to avoid leakage)
+        if TARGET_VARIABLE in df_engineered.columns:
+            df_engineered = create_rolling_features(
+                df_engineered,
+                [TARGET_VARIABLE],
+                windows=[3, 7],
+                shift=1
+            )
     
     # Lag features (do this last)
     if include_lag:

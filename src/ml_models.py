@@ -36,7 +36,10 @@ def get_ml_model(model_name: str, **kwargs) -> Any:
         Initialized model
     """
     models = {
-        "Linear Regression": LinearRegression(),
+        "Linear Regression": Pipeline([
+            ('scaler', StandardScaler()),
+            ('lr', LinearRegression())
+        ]),
         "Decision Tree": DecisionTreeRegressor(
             random_state=kwargs.get('random_state', RANDOM_STATE),
             max_depth=kwargs.get('max_depth', 10)
