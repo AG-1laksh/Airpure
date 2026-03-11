@@ -3,8 +3,8 @@ Air Pollution Prediction System - Source Package
 """
 
 __version__ = "1.0.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__author__ = "lakshya agarwal"
+__email__ = "ag.lakhya2004@gmail.com"
 
 from .data_loader import load_data, download_data
 from .preprocessing import preprocess_data, create_sequences
