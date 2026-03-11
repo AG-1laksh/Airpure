@@ -47,6 +47,27 @@ def time_series_split(df: pd.DataFrame, test_size: float = 0.2, date_col: str = 
     return train_df, test_df
 
 
+def get_model_feature_names(model, default_features):
+    if hasattr(model, "feature_names_in_"):
+        return list(model.feature_names_in_)
+    if hasattr(model, "named_steps"):
+        try:
+            return list(model.feature_names_in_)
+        except Exception:
+            pass
+    return list(default_features)
+
+
+def align_features(df: pd.DataFrame, feature_names: list) -> pd.DataFrame:
+    missing = [f for f in feature_names if f not in df.columns]
+    extra = [f for f in df.columns if f not in feature_names]
+    if missing:
+        print(f"Warning: adding {len(missing)} missing feature(s) with 0.0 to match trained model.")
+    if extra:
+        print(f"Warning: dropping {len(extra)} extra feature(s) not seen during training.")
+    return df.reindex(columns=feature_names, fill_value=0.0)
+
+
 def save_predictions_csv(city: str, model_name: str, dates, y_true, y_pred):
     out = pd.DataFrame({
         "Date": dates,
@@ -80,13 +101,13 @@ if "Date" not in df_feat.columns:
 train_df, test_df = time_series_split(df_feat, test_size=args.test_size, date_col="Date")
 feature_cols = [col for col in df_feat.columns if col not in ["AQI", "Date", "City"]]
 
-X_train = train_df[feature_cols].values
+X_train_df = train_df[feature_cols].copy()
 y_train = train_df["AQI"].values
-X_test = test_df[feature_cols].values
+X_test_df = test_df[feature_cols].copy()
 y_test = test_df["AQI"].values
 test_dates = test_df["Date"].values
 
-print(f"Train samples: {len(X_train)} | Test samples: {len(X_test)}")
+print(f"Train samples: {len(X_train_df)} | Test samples: {len(X_test_df)}")
 
 # --- Predict with each available model ---
 model_names = [
@@ -110,13 +131,24 @@ for name in model_names:
     try:
         model = load_saved_model(name, city=city)
 
+        model_features = get_model_feature_names(model, feature_cols)
+        X_train_used_df = align_features(X_train_df, model_features)
+        X_test_used_df = align_features(X_test_df, model_features)
+
+        if hasattr(model, "n_features_in_") and X_train_used_df.shape[1] != model.n_features_in_:
+            print(
+                f"{name:<30} [feature mismatch: model expects {model.n_features_in_}, "
+                f"current has {X_train_used_df.shape[1]} — retrain for this feature set]"
+            )
+            continue
+
         if name in scaling_models and not (hasattr(model, "named_steps") and "scaler" in model.named_steps):
             scaler = StandardScaler()
-            X_train_used = scaler.fit_transform(X_train)
-            X_test_used = scaler.transform(X_test)
+            X_train_used = scaler.fit_transform(X_train_used_df.values)
+            X_test_used = scaler.transform(X_test_used_df.values)
         else:
-            X_train_used = X_train
-            X_test_used = X_test
+            X_train_used = X_train_used_df.values
+            X_test_used = X_test_used_df.values
 
         y_pred = model.predict(X_test_used)
         metrics = evaluate_model(y_test, y_pred, model_name=name)
@@ -183,7 +215,7 @@ try:
     import shap
     if tree_model_name:
         tree_model = load_saved_model(tree_model_name, city=city)
-        X_sample = pd.DataFrame(X_test[:200], columns=feature_cols)
+        X_sample = pd.DataFrame(X_test_df.iloc[:200].values, columns=feature_cols)
         shap_values, explainer = calculate_shap_values(tree_model, X_sample, feature_cols, model_type='auto')
         plot_shap_summary(shap_values, X_sample, feature_cols,
                           save_path=f"{city}_{tree_model_name.lower().replace(' ', '_')}_shap_summary.png")
@@ -211,7 +243,7 @@ try:
     scaler_X = joblib.load(MODELS_DIR / f"{city}_lstm_scaler_X.pkl")
     scaler_y = joblib.load(MODELS_DIR / f"{city}_lstm_scaler_y.pkl")
 
-    X_test_sc = scaler_X.transform(X_test)
+    X_test_sc = scaler_X.transform(X_test_df.values)
     X_test_seq, y_test_seq = create_lstm_sequences(X_test_sc, y_test, time_steps)
 
     lstm_model = load_lstm_model(f"{city}_lstm_model")
