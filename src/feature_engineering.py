@@ -216,8 +216,8 @@ def engineer_features(df: pd.DataFrame,
     
     # Rolling features (before lag to avoid excessive features)
     if include_rolling:
-        # Include target variable + pollution + met features
-        feature_cols = list(dict.fromkeys([TARGET_VARIABLE] + POLLUTION_FEATURES + METEOROLOGICAL_FEATURES))
+        # Exclude target variable to prevent leakage (rolling windows include current-day target)
+        feature_cols = list(dict.fromkeys(POLLUTION_FEATURES + METEOROLOGICAL_FEATURES))
         available_cols = [col for col in feature_cols if col in df_engineered.columns]
         if available_cols:
             df_engineered = create_rolling_features(df_engineered, available_cols, windows=[3, 7])

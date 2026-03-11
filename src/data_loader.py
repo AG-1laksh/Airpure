@@ -17,6 +17,59 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def normalize_mumbai_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize Mumbai dataset columns to project standards.
+
+    Expected raw columns (lowercase):
+    date, pm10, pm2_5, carbon_monoxide, nitrogen_dioxide, sulphur_dioxide, ozone,
+    aerosol_optical_depth, dust, uv_index, us_aqi, european_aqi
+    """
+    df_norm = df.copy()
+
+    # Normalize date column
+    if "date" in df_norm.columns and "Date" not in df_norm.columns:
+        df_norm = df_norm.rename(columns={"date": "Date"})
+
+    # Column mapping to project standards
+    column_map = {
+        "pm2_5": "PM2.5",
+        "pm10": "PM10",
+        "nitrogen_dioxide": "NO2",
+        "sulphur_dioxide": "SO2",
+        "carbon_monoxide": "CO",
+        "ozone": "O3",
+        "us_aqi": "AQI",
+    }
+
+    # Apply mapping if raw columns exist
+    existing_map = {k: v for k, v in column_map.items() if k in df_norm.columns}
+    if existing_map:
+        df_norm = df_norm.rename(columns=existing_map)
+
+    # Convert numeric columns to proper dtype
+    for col in ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "AQI"]:
+        if col in df_norm.columns:
+            df_norm[col] = pd.to_numeric(df_norm[col], errors="coerce")
+
+    # If AQI is missing but PM2.5 is available, estimate AQI
+    if "AQI" in df_norm.columns:
+        if df_norm["AQI"].isna().any() and "PM2.5" in df_norm.columns:
+            missing_mask = df_norm["AQI"].isna() & df_norm["PM2.5"].notna()
+            if missing_mask.any():
+                df_norm.loc[missing_mask, "AQI"] = calculate_aqi_from_pm25(
+                    df_norm.loc[missing_mask, "PM2.5"].values
+                )
+    elif "PM2.5" in df_norm.columns:
+        df_norm["AQI"] = calculate_aqi_from_pm25(df_norm["PM2.5"].values)
+
+    # Add City column if missing
+    if "City" not in df_norm.columns:
+        df_norm["City"] = "Mumbai"
+
+    return df_norm
+
+
 def load_delhi_excel_data() -> Optional[pd.DataFrame]:
     """
     Load Delhi AQI data from year-wise Excel files.
@@ -207,7 +260,12 @@ def load_data(city: str, file_path: Optional[str] = None) -> pd.DataFrame:
                     return df_excel
 
         # 3. Generic path: city folder CSV → legacy CSV
-        city_path = get_city_raw_dir(city) / f"{city}_air_quality.csv"
+        city_raw_dir = get_city_raw_dir(city)
+        if city == "Mumbai":
+            preferred_path = city_raw_dir / "air_quality_historical.csv"
+            city_path = preferred_path if preferred_path.exists() else city_raw_dir / f"{city}_air_quality.csv"
+        else:
+            city_path = city_raw_dir / f"{city}_air_quality.csv"
         legacy_path = RAW_DATA_DIR / f"{city}_air_quality.csv"
         file_path = city_path if city_path.exists() else legacy_path
 
@@ -220,6 +278,10 @@ def load_data(city: str, file_path: Optional[str] = None) -> pd.DataFrame:
         elif 'date' in df.columns:
             df.rename(columns={'date': 'Date'}, inplace=True)
             df['Date'] = pd.to_datetime(df['Date'])
+
+        # Normalize Mumbai dataset to project schema
+        if city == "Mumbai":
+            df = normalize_mumbai_data(df)
 
         logger.info(f"Loaded {len(df)} records for {city}")
         return df

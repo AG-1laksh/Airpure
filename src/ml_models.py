@@ -81,6 +81,8 @@ def train_single_model(model_name: str,
                        X_test: np.ndarray = None,
                        y_test: np.ndarray = None,
                        save_model: bool = True,
+                       city: str = None,
+                       save_legacy: bool = True,
                        **kwargs) -> Tuple[Any, Dict]:
     """
     Train a single ML model
@@ -124,10 +126,21 @@ def train_single_model(model_name: str,
     
     # Save model
     if save_model:
-        model_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
-        joblib.dump(model, model_path)
-        logger.info(f"Model saved to {model_path}")
-        info["model_path"] = str(model_path)
+        if city:
+            city_model_path = MODELS_DIR / f"{city}_{model_name.replace(' ', '_').lower()}_model.pkl"
+            joblib.dump(model, city_model_path)
+            logger.info(f"Model saved to {city_model_path}")
+            info["model_path"] = str(city_model_path)
+
+            if save_legacy:
+                legacy_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
+                joblib.dump(model, legacy_path)
+                logger.info(f"Legacy model saved to {legacy_path}")
+        else:
+            model_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
+            joblib.dump(model, model_path)
+            logger.info(f"Model saved to {model_path}")
+            info["model_path"] = str(model_path)
     
     return model, info
 
@@ -137,7 +150,9 @@ def train_ml_models(X_train: np.ndarray,
                     X_test: np.ndarray = None,
                     y_test: np.ndarray = None,
                     models_to_train: list = None,
-                    save_models: bool = True) -> Dict:
+                    save_models: bool = True,
+                    city: str = None,
+                    save_legacy: bool = True) -> Dict:
     """
     Train multiple ML models
     
@@ -169,7 +184,14 @@ def train_ml_models(X_train: np.ndarray,
     for model_name in models_to_train:
         try:
             model, info = train_single_model(
-                model_name, X_train, y_train, X_test, y_test, save_models
+                model_name,
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                save_models,
+                city=city,
+                save_legacy=save_legacy
             )
             results[model_name] = {
                 "model": model,
@@ -201,7 +223,7 @@ def predict_with_model(model: Any, X: np.ndarray) -> np.ndarray:
     return model.predict(X)
 
 
-def load_saved_model(model_name: str) -> Any:
+def load_saved_model(model_name: str, city: str = None) -> Any:
     """
     Load a saved model from disk
     
@@ -211,6 +233,13 @@ def load_saved_model(model_name: str) -> Any:
     Returns:
         Loaded model
     """
+    if city:
+        city_model_path = MODELS_DIR / f"{city}_{model_name.replace(' ', '_').lower()}_model.pkl"
+        if city_model_path.exists():
+            model = joblib.load(city_model_path)
+            logger.info(f"Loaded model from {city_model_path}")
+            return model
+
     model_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
     
     if not model_path.exists():

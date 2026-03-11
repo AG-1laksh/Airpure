@@ -110,7 +110,7 @@ def run_ml_training(df, city: str):
     logger.info(f"Saved ML feature scaler to {scaler_path}")
     
     # Train traditional ML models
-    ml_results = train_ml_models(X_train, y_train, X_test, y_test, save_models=True)
+    ml_results = train_ml_models(X_train, y_train, X_test, y_test, save_models=True, city=city)
     
     # Collect predictions for comparison
     comparison_data = {}
@@ -258,7 +258,7 @@ def main():
             # Load best model (Random Forest for tree-based SHAP)
             from src.ml_models import load_saved_model
             try:
-                model = load_saved_model("Random Forest")
+                model = load_saved_model("Random Forest", city=args.city)
                 importance_df = run_explainability(model, X_test, feature_cols, args.city)
             except:
                 logger.warning("Could not load saved model for explainability")
