@@ -172,15 +172,16 @@ for name in model_names:
     except FileNotFoundError:
         print(f"{name:<30} [not trained yet — run: python main.py --city {city} --mode train]")
 
-comparison_df = pd.DataFrame(comparison_rows).sort_values("RMSE").reset_index(drop=True)
-comparison_path = TABLES_DIR / f"{city}_model_comparison.csv"
-comparison_df.to_csv(comparison_path, index=False)
-
-print("\n=== Model Comparison (sorted by RMSE) ===")
-print(comparison_df.to_string(index=False))
-print(f"\nSaved comparison table → {comparison_path}")
-
+comparison_df = pd.DataFrame(comparison_rows)
 if not comparison_df.empty:
+    comparison_df = comparison_df.sort_values("RMSE").reset_index(drop=True)
+    comparison_path = TABLES_DIR / f"{city}_model_comparison.csv"
+    comparison_df.to_csv(comparison_path, index=False)
+
+    print("\n=== Model Comparison (sorted by RMSE) ===")
+    print(comparison_df.to_string(index=False))
+    print(f"\nSaved comparison table → {comparison_path}")
+
     best_model_name = comparison_df.iloc[0]["Model"]
     best_pred = predictions_by_model.get(best_model_name)
     print(f"\nTop model: {best_model_name}")
@@ -194,6 +195,9 @@ if not comparison_df.empty:
                        save_path=f"{city}_best_residuals.png")
 
     plot_model_comparison(comparison_df, save_path=f"{city}_model_comparison.png")
+else:
+    print("\nNo comparable ML results available. Retrain models for this feature set:")
+    print(f"  python main.py --city {city} --mode train")
 
 # --- Feature importance (tree models) ---
 tree_models = ["Random Forest", "XGBoost", "Gradient Boosting", "Decision Tree"]
@@ -242,6 +246,13 @@ try:
     time_steps = LSTM_CONFIG.get("time_steps", 7)
     scaler_X = joblib.load(MODELS_DIR / f"{city}_lstm_scaler_X.pkl")
     scaler_y = joblib.load(MODELS_DIR / f"{city}_lstm_scaler_y.pkl")
+
+    if hasattr(scaler_X, "n_features_in_") and X_test_df.shape[1] != scaler_X.n_features_in_:
+        print(
+            f"  LSTM skipped: scaler expects {scaler_X.n_features_in_} features, "
+            f"current has {X_test_df.shape[1]} — retrain LSTM for this feature set."
+        )
+        raise FileNotFoundError
 
     X_test_sc = scaler_X.transform(X_test_df.values)
     X_test_seq, y_test_seq = create_lstm_sequences(X_test_sc, y_test, time_steps)

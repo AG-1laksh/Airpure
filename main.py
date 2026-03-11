@@ -210,6 +210,10 @@ def main():
             
             # Feature engineering
             df_final = run_feature_engineering(df_clean, args.city)
+        elif args.mode in ['train', 'lstm']:
+            # Always refresh features for training modes to avoid schema drift
+            df_clean = run_preprocessing(df, args.city)
+            df_final = run_feature_engineering(df_clean, args.city)
         else:
             # Load preprocessed data — fall back to running it if the file doesn't exist
             legacy_path = PROCESSED_DATA_DIR / f"{args.city}_processed.csv"
