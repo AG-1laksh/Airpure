@@ -362,7 +362,7 @@ def plot_residuals(y_true: np.ndarray,
     """4-panel: residuals vs predicted, distribution+KDE, Q-Q, residuals over time."""
     from scipy import stats
     residuals = np.asarray(y_true) - np.asarray(y_pred)
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
 
     ax = axes[0, 0]
     ax.scatter(y_pred, residuals, alpha=0.35, s=15, color=PALETTE[0])
@@ -402,11 +402,10 @@ def plot_residuals(y_true: np.ndarray,
     ax.set_title('Residuals Over Test Set')
     ax.legend(fontsize=9)
     rmse = np.sqrt(np.mean(residuals**2))
-    ax.text(0.02, 0.95, f'RMSE = {rmse:.2f}', transform=ax.transAxes, fontsize=10,
-            va='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    ax.text(0.03, 0.92, f'RMSE = {rmse:.2f}', transform=ax.transAxes, fontsize=10,
+            va='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.suptitle(title, fontsize=16, fontweight='bold')
+    fig.suptitle(title, fontsize=16, fontweight='bold', y=1.02)
     _save(fig, save_path, 'residual analysis')
 
 
