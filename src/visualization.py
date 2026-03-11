@@ -202,7 +202,7 @@ def plot_predictions(y_true: np.ndarray,
     mae  = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
 
-    fig, axes = plt.subplots(1, 3, figsize=(21, 6))
+    fig, axes = plt.subplots(1, 3, figsize=(21, 6), constrained_layout=True)
 
     # --- Scatter ---
     ax = axes[0]
@@ -214,9 +214,9 @@ def plot_predictions(y_true: np.ndarray,
     ax.set_xlim(lims); ax.set_ylim(lims)
     ax.set_xlabel('Actual AQI'); ax.set_ylabel('Predicted AQI')
     ax.set_title('Scatter: Actual vs Predicted')
-    ax.text(0.05, 0.92, f'R² = {r2:.3f}\nRMSE = {rmse:.1f}\nMAE  = {mae:.1f}',
+    ax.text(0.03, 0.97, f'R² = {r2:.3f}\nRMSE = {rmse:.1f}\nMAE  = {mae:.1f}',
             transform=ax.transAxes, fontsize=10,
-            bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.85))
+            bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
     patches = [mpatches.Patch(color=c, alpha=0.7, label=nm)
                for nm, (lo, hi, c) in AQI_BAND.items()]
     ax.legend(handles=patches, fontsize=8, loc='lower right', title='AQI Cat.')
@@ -246,8 +246,7 @@ def plot_predictions(y_true: np.ndarray,
     ax.set_title('Residual Distribution')
     ax.legend(fontsize=9)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
-    fig.suptitle(title, fontsize=16, fontweight='bold')
+    fig.suptitle(title, fontsize=16, fontweight='bold', y=1.02)
     _save(fig, save_path, 'predictions')
 
 

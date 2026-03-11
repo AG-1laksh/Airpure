@@ -122,6 +122,7 @@ model_names = [
 scaling_models = {"Linear Regression", "Support Vector Machine"}
 comparison_rows = []
 predictions_by_model = {}
+all_predictions_rows = []
 
 print("\n=== Predictions (first 10 samples) ===")
 print(f"{'Model':<30} {'Predictions':}")
@@ -162,6 +163,13 @@ for name in model_names:
         })
 
         save_predictions_csv(city, name, test_dates, y_test, y_pred)
+        for dt, actual, pred in zip(test_dates, y_test, y_pred):
+            all_predictions_rows.append({
+                "Date": dt,
+                "Actual_AQI": actual,
+                "Predicted_AQI": pred,
+                "Model": name
+            })
 
         print(f"\n{name}")
         print(f"  Predictions : {np.asarray(y_pred[:10]).round(1)}")
@@ -266,6 +274,13 @@ try:
         metrics = evaluate_model(y_test_seq, y_pred_aqi, model_name='LSTM')
 
         save_predictions_csv(city, "LSTM", lstm_dates, y_test_seq, y_pred_aqi)
+        for dt, actual, pred in zip(lstm_dates, y_test_seq, y_pred_aqi):
+            all_predictions_rows.append({
+                "Date": dt,
+                "Actual_AQI": actual,
+                "Predicted_AQI": pred,
+                "Model": "LSTM"
+            })
 
         print(f"  Predictions : {y_pred_aqi[:10].round(1)}")
         print(f"  RMSE={metrics['RMSE']:.2f}  MAE={metrics['MAE']:.2f}  R2={metrics['R2']:.3f}")
@@ -303,3 +318,10 @@ try:
 
 except FileNotFoundError:
     print(f"  [not trained yet — run: python main.py --city {city} --mode lstm]")
+
+if all_predictions_rows:
+    all_preds_df = pd.DataFrame(all_predictions_rows)
+    all_preds_df = all_preds_df.sort_values(["Model", "Date"]).reset_index(drop=True)
+    all_preds_path = PREDICTIONS_DIR / f"{city}_all_predictions.csv"
+    all_preds_df.to_csv(all_preds_path, index=False)
+    print(f"\nSaved consolidated predictions → {all_preds_path}")
