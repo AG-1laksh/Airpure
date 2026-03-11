@@ -9,7 +9,6 @@ import warnings
 warnings.filterwarnings('ignore')
 import pandas as pd
 import joblib
-from sklearn.preprocessing import StandardScaler
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent / 'src'))
@@ -100,14 +99,6 @@ def run_ml_training(df, city: str):
     
     # Prepare data
     X_train, X_test, y_train, y_test = prepare_train_test_split(df, target_col=TARGET_VARIABLE)
-    
-    # Scale features (required for SVR and Linear Regression correctness)
-    scaler_X = StandardScaler()
-    X_train = scaler_X.fit_transform(X_train)
-    X_test = scaler_X.transform(X_test)
-    scaler_path = MODELS_DIR / f"{city}_ml_scaler.pkl"
-    joblib.dump(scaler_X, scaler_path)
-    logger.info(f"Saved ML feature scaler to {scaler_path}")
     
     # Train traditional ML models
     ml_results = train_ml_models(X_train, y_train, X_test, y_test, save_models=True, city=city)
