@@ -23,6 +23,38 @@ from config import MODELS_DIR, RANDOM_STATE
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+MODEL_KEYS = {
+    "Linear Regression": "linear_regression",
+    "Decision Tree": "decision_tree",
+    "Random Forest": "random_forest",
+    "Support Vector Machine": "support_vector_machine",
+    "Gradient Boosting": "gradient_boosting",
+    "XGBoost": "xgboost",
+}
+
+
+def get_model_key(model_name: str) -> str:
+    """Return stable filesystem-safe key for model names."""
+    return MODEL_KEYS.get(model_name, model_name.replace(' ', '_').lower())
+
+
+def _validate_training_inputs(X_train: np.ndarray,
+                              y_train: np.ndarray,
+                              X_test: np.ndarray = None,
+                              y_test: np.ndarray = None):
+    """Basic guardrails to enforce numeric, finite preprocessed inputs."""
+    if not np.issubdtype(X_train.dtype, np.number):
+        raise ValueError("X_train must be numeric. Please preprocess/encode features before training.")
+    if not np.isfinite(X_train).all():
+        raise ValueError("X_train contains NaN or infinite values. Please clean data before training.")
+    if not np.isfinite(y_train).all():
+        raise ValueError("y_train contains NaN or infinite values.")
+
+    if X_test is not None and not np.isfinite(X_test).all():
+        raise ValueError("X_test contains NaN or infinite values.")
+    if y_test is not None and not np.isfinite(y_test).all():
+        raise ValueError("y_test contains NaN or infinite values.")
+
 
 def get_ml_model(model_name: str, **kwargs) -> Any:
     """
@@ -42,12 +74,16 @@ def get_ml_model(model_name: str, **kwargs) -> Any:
         ]),
         "Decision Tree": DecisionTreeRegressor(
             random_state=kwargs.get('random_state', RANDOM_STATE),
-            max_depth=kwargs.get('max_depth', 10)
+            max_depth=kwargs.get('max_depth', 10),
+            min_samples_split=kwargs.get('min_samples_split', 5),
+            min_samples_leaf=kwargs.get('min_samples_leaf', 2)
         ),
         "Random Forest": RandomForestRegressor(
             n_estimators=kwargs.get('n_estimators', 100),
             random_state=kwargs.get('random_state', RANDOM_STATE),
             max_depth=kwargs.get('max_depth', 15),
+            min_samples_split=kwargs.get('min_samples_split', 5),
+            min_samples_leaf=kwargs.get('min_samples_leaf', 2),
             n_jobs=-1
         ),
         "Support Vector Machine": Pipeline([
@@ -62,13 +98,17 @@ def get_ml_model(model_name: str, **kwargs) -> Any:
             n_estimators=kwargs.get('n_estimators', 100),
             learning_rate=kwargs.get('learning_rate', 0.1),
             random_state=kwargs.get('random_state', RANDOM_STATE),
-            max_depth=kwargs.get('max_depth', 5)
+            max_depth=kwargs.get('max_depth', 5),
+            min_samples_split=kwargs.get('min_samples_split', 5),
+            min_samples_leaf=kwargs.get('min_samples_leaf', 2)
         ),
         "XGBoost": XGBRegressor(
             n_estimators=kwargs.get('n_estimators', 100),
             learning_rate=kwargs.get('learning_rate', 0.1),
             random_state=kwargs.get('random_state', RANDOM_STATE),
-            max_depth=kwargs.get('max_depth', 6)
+            max_depth=kwargs.get('max_depth', 6),
+            eval_metric=kwargs.get('eval_metric', 'rmse'),
+            objective=kwargs.get('objective', 'reg:squarederror')
         )
     }
     
@@ -86,6 +126,7 @@ def train_single_model(model_name: str,
                        save_model: bool = True,
                        city: str = None,
                        save_legacy: bool = True,
+                       cv_folds: int = 0,
                        **kwargs) -> Tuple[Any, Dict]:
     """
     Train a single ML model
@@ -103,6 +144,8 @@ def train_single_model(model_name: str,
         Trained model and training info
     """
     logger.info(f"Training {model_name}...")
+
+    _validate_training_inputs(X_train, y_train, X_test, y_test)
     
     # Get model
     model = get_ml_model(model_name, **kwargs)
@@ -120,6 +163,16 @@ def train_single_model(model_name: str,
         "n_features": X_train.shape[1],
         "n_samples": X_train.shape[0]
     }
+
+    # Optional cross-validation score for stability diagnostics
+    if cv_folds and cv_folds > 1:
+        from sklearn.model_selection import cross_val_score
+        cv_scores = cross_val_score(model, X_train, y_train, cv=cv_folds, scoring='r2', n_jobs=-1)
+        info["cv_mean_r2"] = float(np.mean(cv_scores))
+        info["cv_std_r2"] = float(np.std(cv_scores))
+        logger.info(
+            f"{model_name} - CV R² (cv={cv_folds}): {info['cv_mean_r2']:.4f} ± {info['cv_std_r2']:.4f}"
+        )
     
     # Test score if available
     if X_test is not None and y_test is not None:
@@ -129,18 +182,21 @@ def train_single_model(model_name: str,
     
     # Save model
     if save_model:
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        model_key = get_model_key(model_name)
+
         if city:
-            city_model_path = MODELS_DIR / f"{city}_{model_name.replace(' ', '_').lower()}_model.pkl"
+            city_model_path = MODELS_DIR / f"{city}_{model_key}_model.pkl"
             joblib.dump(model, city_model_path)
             logger.info(f"Model saved to {city_model_path}")
             info["model_path"] = str(city_model_path)
 
             if save_legacy:
-                legacy_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
+                legacy_path = MODELS_DIR / f"{model_key}_model.pkl"
                 joblib.dump(model, legacy_path)
                 logger.info(f"Legacy model saved to {legacy_path}")
         else:
-            model_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
+            model_path = MODELS_DIR / f"{model_key}_model.pkl"
             joblib.dump(model, model_path)
             logger.info(f"Model saved to {model_path}")
             info["model_path"] = str(model_path)
@@ -155,7 +211,8 @@ def train_ml_models(X_train: np.ndarray,
                     models_to_train: list = None,
                     save_models: bool = True,
                     city: str = None,
-                    save_legacy: bool = True) -> Dict:
+                    save_legacy: bool = True,
+                    cv_folds: int = 0) -> Dict:
     """
     Train multiple ML models
     
@@ -194,7 +251,8 @@ def train_ml_models(X_train: np.ndarray,
                 y_test,
                 save_models,
                 city=city,
-                save_legacy=save_legacy
+                save_legacy=save_legacy,
+                cv_folds=cv_folds
             )
             results[model_name] = {
                 "model": model,
@@ -236,14 +294,16 @@ def load_saved_model(model_name: str, city: str = None) -> Any:
     Returns:
         Loaded model
     """
+    model_key = get_model_key(model_name)
+
     if city:
-        city_model_path = MODELS_DIR / f"{city}_{model_name.replace(' ', '_').lower()}_model.pkl"
+        city_model_path = MODELS_DIR / f"{city}_{model_key}_model.pkl"
         if city_model_path.exists():
             model = joblib.load(city_model_path)
             logger.info(f"Loaded model from {city_model_path}")
             return model
 
-    model_path = MODELS_DIR / f"{model_name.replace(' ', '_').lower()}_model.pkl"
+    model_path = MODELS_DIR / f"{model_key}_model.pkl"
     
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
@@ -265,8 +325,28 @@ def get_feature_importance(model: Any, feature_names: list = None) -> pd.DataFra
     Returns:
         DataFrame with feature importance
     """
-    if hasattr(model, 'feature_importances_'):
-        importances = model.feature_importances_
+    # Unwrap estimator if input is a sklearn pipeline
+    estimator = model.steps[-1][1] if isinstance(model, Pipeline) else model
+
+    if hasattr(estimator, 'feature_importances_'):
+        importances = estimator.feature_importances_
+
+        if feature_names is None:
+            feature_names = [f"Feature_{i}" for i in range(len(importances))]
+
+        importance_df = pd.DataFrame({
+            'Feature': feature_names,
+            'Importance': importances
+        }).sort_values('Importance', ascending=False)
+
+        return importance_df
+
+    if hasattr(estimator, 'coef_'):
+        coefs = estimator.coef_
+        if np.ndim(coefs) > 1:
+            importances = np.mean(np.abs(coefs), axis=0)
+        else:
+            importances = np.abs(coefs)
         
         if feature_names is None:
             feature_names = [f"Feature_{i}" for i in range(len(importances))]
@@ -278,7 +358,7 @@ def get_feature_importance(model: Any, feature_names: list = None) -> pd.DataFra
         
         return importance_df
     else:
-        logger.warning(f"Model {type(model).__name__} does not have feature_importances_")
+        logger.warning(f"Model {type(estimator).__name__} does not expose feature_importances_ or coef_")
         return pd.DataFrame()
 
 
@@ -308,7 +388,8 @@ def hyperparameter_tuning(model_name: str,
             "Random Forest": {
                 'n_estimators': [50, 100, 200],
                 'max_depth': [10, 15, 20],
-                'min_samples_split': [2, 5]
+                'min_samples_split': [2, 5],
+                'min_samples_leaf': [1, 2]
             },
             "XGBoost": {
                 'n_estimators': [50, 100, 200],
@@ -318,7 +399,9 @@ def hyperparameter_tuning(model_name: str,
             "Gradient Boosting": {
                 'n_estimators': [50, 100, 200],
                 'learning_rate': [0.01, 0.1, 0.3],
-                'max_depth': [3, 5, 7]
+                'max_depth': [3, 5, 7],
+                'min_samples_split': [2, 5],
+                'min_samples_leaf': [1, 2]
             }
         }
         param_grid = default_grids.get(model_name, {})
@@ -329,6 +412,21 @@ def hyperparameter_tuning(model_name: str,
     
     # Get base model
     base_model = get_ml_model(model_name)
+
+    # Validate param grid keys explicitly to avoid silent failures, especially for Pipelines
+    valid_keys = set(base_model.get_params().keys())
+    invalid_keys = [key for key in param_grid.keys() if key not in valid_keys]
+    if invalid_keys:
+        if isinstance(base_model, Pipeline):
+            step_names = [f"{name}__<param>" for name, _ in base_model.steps]
+            raise ValueError(
+                f"Invalid GridSearch params for pipeline model {model_name}: {invalid_keys}. "
+                f"Use step-prefixed keys like {step_names}."
+            )
+        raise ValueError(
+            f"Invalid GridSearch params for model {model_name}: {invalid_keys}. "
+            f"Valid keys include: {sorted(list(valid_keys))[:15]}..."
+        )
     
     # Grid search
     grid_search = GridSearchCV(

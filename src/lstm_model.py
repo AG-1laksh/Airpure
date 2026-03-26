@@ -5,6 +5,7 @@ Implements LSTM neural network for time-series AQI prediction
 import numpy as np
 import pandas as pd
 import keras
+import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout
 from keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -22,6 +23,10 @@ from config import LSTM_CONFIG, MODELS_DIR
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Reproducibility
+np.random.seed(42)
+tf.random.set_seed(42)
+
 
 def create_lstm_sequences(X: np.ndarray, y: np.ndarray, time_steps: int = 7) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -33,7 +38,9 @@ def create_lstm_sequences(X: np.ndarray, y: np.ndarray, time_steps: int = 7) -> 
         time_steps: Number of time steps to look back
         
     Returns:
-        X_sequences (samples, time_steps, features), y_sequences
+        X_sequences (samples, time_steps, features), y_sequences.
+        Note: the first `time_steps` samples are used only as lookback context,
+        so resulting sequence arrays have length `len(X) - time_steps`.
     """
     X_seq, y_seq = [], []
     
@@ -128,6 +135,9 @@ def train_lstm(X_train: np.ndarray,
     # Use default config if not provided
     if lstm_config is None:
         lstm_config = LSTM_CONFIG.copy()
+
+    if save_model:
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
     
     if time_steps is None:
         time_steps = lstm_config.get('time_steps', 7)
@@ -180,15 +190,21 @@ def train_lstm(X_train: np.ndarray,
     # Train model
     logger.info("Training LSTM model...")
     
-    history = model.fit(
-        X_train_seq, y_train_seq,
-        epochs=lstm_config.get('epochs', 100),
-        batch_size=lstm_config.get('batch_size', 32),
-        validation_data=validation_data,
-        validation_split=lstm_config.get('validation_split', 0.2) if validation_data is None else 0,
-        callbacks=callbacks,
-        verbose=1
-    )
+    fit_kwargs = {
+        "x": X_train_seq,
+        "y": y_train_seq,
+        "epochs": lstm_config.get('epochs', 100),
+        "batch_size": lstm_config.get('batch_size', 32),
+        "callbacks": callbacks,
+        "verbose": 1,
+    }
+
+    if validation_data is not None:
+        fit_kwargs["validation_data"] = validation_data
+    else:
+        fit_kwargs["validation_split"] = lstm_config.get('validation_split', 0.2)
+
+    history = model.fit(**fit_kwargs)
     
     # Save final model
     if save_model:
@@ -261,7 +277,8 @@ def load_lstm_model(model_name: str = "lstm_model") -> Sequential:
 def predict_future_aqi(model: Sequential,
                       last_sequence: np.ndarray,
                       n_days: int = 7,
-                      scaler_y: MinMaxScaler = None) -> np.ndarray:
+                      scaler_y: MinMaxScaler = None,
+                      aqi_feature_index: int = -1) -> np.ndarray:
     """
     Predict future AQI values
     
@@ -270,11 +287,22 @@ def predict_future_aqi(model: Sequential,
         last_sequence: Last sequence of features (time_steps, n_features)
         n_days: Number of days to predict ahead
         scaler_y: Scaler fitted ONLY on y (target) values for inverse-transform
+        aqi_feature_index: Index of AQI-related feature within each timestep.
+            Must be explicitly set by caller if AQI is not the last feature.
         
     Returns:
         Array of future AQI predictions (in original AQI scale if scaler_y provided)
     """
     logger.info(f"Predicting {n_days} days ahead...")
+
+    if not isinstance(aqi_feature_index, int):
+        raise TypeError("aqi_feature_index must be an integer.")
+
+    n_features = last_sequence.shape[1]
+    if not -n_features <= aqi_feature_index < n_features:
+        raise ValueError(
+            f"aqi_feature_index {aqi_feature_index} out of bounds for sequence with {n_features} features"
+        )
     
     predictions = []
     current_sequence = last_sequence.copy()
@@ -289,7 +317,7 @@ def predict_future_aqi(model: Sequential,
         
         # Update sequence (sliding window)
         current_sequence = np.roll(current_sequence, -1, axis=0)
-        current_sequence[-1, -1] = next_pred  # Update AQI in last position
+        current_sequence[-1, aqi_feature_index] = next_pred  # Update configured AQI feature slot
     
     predictions = np.array(predictions)
     
@@ -347,7 +375,8 @@ def evaluate_lstm(model: Sequential,
 if __name__ == "__main__":
     # Test LSTM model
     from data_loader import load_data
-    from preprocessing import preprocess_data, scale_features
+    from preprocessing import preprocess_data
+    from sklearn.preprocessing import MinMaxScaler
     
     print("Testing LSTM model module...")
     
@@ -355,18 +384,23 @@ if __name__ == "__main__":
     df = load_data("Delhi")
     df_clean = preprocess_data(df, remove_outliers=False)
     
-    # Scale features
-    df_scaled, scaler = scale_features(df_clean, scaler_type="minmax")
-    
     # Prepare data
-    feature_cols = [col for col in df_scaled.columns if col not in ['Date', 'City', 'AQI']]
-    X = df_scaled[feature_cols].values
-    y = df_scaled['AQI'].values
+    feature_cols = [col for col in df_clean.columns if col not in ['Date', 'City', 'AQI']]
+    X = df_clean[feature_cols].values
+    y = df_clean['AQI'].values
     
     # Split
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X[:split_idx], X[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
+
+    # Fit scalers ONLY on training data to avoid leakage
+    scaler_X = MinMaxScaler()
+    scaler_y = MinMaxScaler()
+    X_train = scaler_X.fit_transform(X_train)
+    X_test = scaler_X.transform(X_test)
+    y_train = scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
+    y_test = scaler_y.transform(y_test.reshape(-1, 1)).flatten()
     
     print(f"Training data: {X_train.shape}")
     

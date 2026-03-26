@@ -135,16 +135,19 @@ def run_lstm_training(df, city: str):
     from sklearn.preprocessing import MinMaxScaler
     scaler_X = MinMaxScaler()
     scaler_y = MinMaxScaler()
-    
-    X_scaled = scaler_X.fit_transform(X)
-    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
-    
+
     # Split data
-    split_idx = int(len(X_scaled) * 0.8)
-    X_train = X_scaled[:split_idx]
-    X_test = X_scaled[split_idx:]
-    y_train = y_scaled[:split_idx]
-    y_test = y_scaled[split_idx:]
+    split_idx = int(len(X) * 0.8)
+    X_train_raw = X[:split_idx]
+    X_test_raw = X[split_idx:]
+    y_train_raw = y[:split_idx]
+    y_test_raw = y[split_idx:]
+
+    # Fit scalers only on train split to avoid leakage
+    X_train = scaler_X.fit_transform(X_train_raw)
+    X_test = scaler_X.transform(X_test_raw)
+    y_train = scaler_y.fit_transform(y_train_raw.reshape(-1, 1)).flatten()
+    y_test = scaler_y.transform(y_test_raw.reshape(-1, 1)).flatten()
     
     # Train LSTM
     lstm_model, lstm_info = train_lstm(
@@ -156,6 +159,7 @@ def run_lstm_training(df, city: str):
     )
     
     # Save scalers alongside the model for correct inference-time inverse-transform
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(scaler_X, MODELS_DIR / f"{city}_lstm_scaler_X.pkl")
     joblib.dump(scaler_y, MODELS_DIR / f"{city}_lstm_scaler_y.pkl")
     logger.info(f"Saved LSTM scalers to {MODELS_DIR}")
